@@ -4,8 +4,8 @@ use crate::core::Countable;
 /// Returns None if parsing fails
 fn parse_line(line: &str) -> Option<(i32, i32)> {
     line.split_whitespace()
-        .map(|num| num.parse().unwrap())
-        .collect::<Vec<i32>>()
+        .map(|num| num.parse().ok())
+        .collect::<Option<Vec<i32>>>()?
         .split_at_checked(2)
         .map(|(first, _)| (first[0], first[1]))
 }
@@ -24,7 +24,7 @@ fn parse_contents(contents: &str) -> (Vec<i32>, Vec<i32>) {
 }
 
 #[allow(dead_code)]
-fn solve_part1(contents: &str) -> i32 {
+fn solve_part1(contents: &str) -> usize {
     let (mut first_nums, mut second_nums) = parse_contents(contents);
 
     first_nums.sort();
@@ -33,20 +33,20 @@ fn solve_part1(contents: &str) -> i32 {
     first_nums
         .iter()
         .zip(second_nums.iter())
-        .map(|(a, b)| (a - b).abs())
+        .map(|(a, b)| (a - b).abs() as usize)
         .sum()
 }
 
-fn solve_part2(contents: &str) -> i32 {
+fn solve_part2(contents: &str) -> usize {
     let (first_nums, second_nums) = parse_contents(contents);
-    let counts = second_nums.iter().counts();
+    let counts = second_nums.into_iter().counts();
     first_nums
-        .iter()
-        .map(|num| num * counts.get(num).unwrap_or(&0))
+        .into_iter()
+        .map(|num| num as usize * counts.get(&num).unwrap_or(&0))
         .sum()
 }
 
-pub fn solution() -> i32 {
+pub fn solution() -> usize {
     let contents =
         std::fs::read_to_string("days/day1.txt").expect("Should have been able to read the file");
     solve_part2(&contents)
