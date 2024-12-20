@@ -46,6 +46,7 @@ fn solve_part2(contents: &str) -> usize {
         .sum()
 }
 
+#[allow(dead_code)]
 pub fn solution() -> usize {
     let contents =
         std::fs::read_to_string("days/day1.txt").expect("Should have been able to read the file");
