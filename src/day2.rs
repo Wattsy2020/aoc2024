@@ -62,15 +62,8 @@ impl DiffDirectionIndices {
     }
 }
 
-fn skip_index<T>(slice: &[T], idx: usize) -> impl Iterator<Item = &T> {
-    slice
-        .iter()
-        .take(idx)
-        .chain(slice.iter().skip(idx + 1))
-}
-
 fn is_valid_report_with_dampener(report: &[i32]) -> bool {
-    if report.len() <= 1 {
+    if report.len() <= 2 {
         return true;
     }
 
@@ -84,35 +77,57 @@ fn is_valid_report_with_dampener(report: &[i32]) -> bool {
     // then fix the one with the wrong direction
     let diff_directions = DiffDirectionIndices::count_diffs(&diffs);
     match (diff_directions.increasing.as_slice(), diff_directions.decreasing.as_slice()) {
-        ([], _) => {
+        ([] | [_], _) => {
             let mut level_removed = false;
+            let mut prev_level_removed = false;
+
             diffs
                 .windows(2)
-                .all(|diffs| is_valid_negative_diff(diffs[0])
+                .all(|diffs| { let temp = prev_level_removed; prev_level_removed = false; temp }
+                    || is_valid_negative_diff(diffs[0])
                     || !level_removed && {
                     level_removed = true;
+                    prev_level_removed = true;
                     is_valid_negative_diff(diffs[0] + diffs[1])
                 })
         }
-        (_, []) => {
+        (_, [] | [_]) => {
             let mut level_removed = false;
-            diffs
-                .windows(2)
-                .all(|diffs| is_valid_positive_diff(diffs[0])
-                    || !level_removed && {
+            let mut prev_level_removed = false;
+            let mut is_first = true;
+            
+            // todo bug: we don't consider the last diff
+            // is there some way to check the first and last diff in a nicer manner?
+            // what if we try adding padding at both ends
+            // e.g. for the positive direction, we add a diff of 1 at the start and end of the list
+            for diffs in diffs.windows(2) {
+                if prev_level_removed {
+                    prev_level_removed = false;
+                    continue;
+                }
+
+                if is_valid_positive_diff(diffs[0]) {
+                    is_first = true;
+                    continue;
+                }
+
+                if !level_removed {
                     level_removed = true;
-                    is_valid_positive_diff(diffs[0] + diffs[1])
-                })
-        }
-        ([wrong_idx], _) => {
-            // we're skipping a diff when we need to skip a number instead
-            skip_index(&diffs, *wrong_idx)
-                .all(|diff| is_valid_negative_diff(*diff))
-        }
-        (_, [wrong_idx]) => {
-            let skipped: Box<[i32]> = skip_index(&diffs, *wrong_idx).cloned().collect();
-            skipped.iter()
-                .all(|diff| is_valid_positive_diff(*diff))
+                    if is_valid_positive_diff(diffs[0] + diffs[1]) {
+                        prev_level_removed = true;
+                    } else if is_first {
+                        println!("removing first element");
+                    }
+                    else {
+                        return false;
+                    }
+                    is_first = false;
+                    continue;
+                }
+                return false;
+            }
+
+            true
         }
         _ => false // neither is off by at most one, so it's not fixable
     }
@@ -140,7 +155,7 @@ pub fn solution() -> usize {
     // [1, 100, 2] fails because it decides the Vector is decreasing
     // have to let the diff checking change both the increasing and decreasing order perhaps
     // shouldn't apply to this problem though because it has size 5, solve the other bug instead
-    let test_data = vec![1, 100, 2, 4];
+    let test_data = vec![1, 10, 20];
     let result = is_valid_report_with_dampener(&test_data);
     println!("{result}");
 
@@ -155,16 +170,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_skip_idx() {
-        let result: Vec<i32> = skip_index(&vec![1, 2, 3], 0).cloned().collect();
-        assert_eq!(result, vec![2, 3]);
-        let result: Vec<i32> = skip_index(&vec![1, 2, 3], 1).cloned().collect();
-        assert_eq!(result, vec![1, 3]);
-        let result: Vec<i32> = skip_index(&vec![1, 2, 3], 2).cloned().collect();
-        assert_eq!(result, vec![1, 2]);
-    }
-
-    #[test]
     fn test_large_increase() {
         let test_data = vec![1, 100, 2, 4];
         assert!(is_valid_report_with_dampener(&test_data));
@@ -174,5 +179,35 @@ mod tests {
     fn test_large_decrease() {
         let test_data = vec![1, -100, 2, 4];
         assert!(is_valid_report_with_dampener(&test_data));
+    }
+
+    #[test]
+    fn test_double_large_increase() {
+        assert!(!is_valid_report_with_dampener(&vec![1, 10, 20]));
+        assert!(!is_valid_report_with_dampener(&vec![1, 10, 20, 21]));
+        assert!(!is_valid_report_with_dampener(&vec![1, 10, 20, 10]));
+    }
+
+    #[test]
+    fn test_double_large_swing() {
+        assert!(!is_valid_report_with_dampener(&vec![1, -10, -5]));
+        assert!(!is_valid_report_with_dampener(&vec![1, -10, -5, 21]));
+        assert!(!is_valid_report_with_dampener(&vec![1, -10, -5, 10]));
+    }
+
+    #[test]
+    fn test_negative_start_removal() {
+        // [-5, -1]
+        assert!(is_valid_report_with_dampener(&vec![10, 5, 4]));
+        assert!(is_valid_report_with_dampener(&vec![10, 5, 6]));
+        assert!(!is_valid_report_with_dampener(&vec![10, 5, 5]));
+    }
+
+    #[test]
+    fn test_positive_start_removal() {
+        assert!(!is_valid_report_with_dampener(&vec![10, 14, 7]));
+        assert!(is_valid_report_with_dampener(&vec![0, 5, 4]));
+        assert!(is_valid_report_with_dampener(&vec![0, 5, 6]));
+        assert!(!is_valid_report_with_dampener(&vec![0, 5, 5]));
     }
 }
