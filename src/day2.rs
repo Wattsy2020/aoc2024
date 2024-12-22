@@ -31,38 +31,6 @@ fn is_valid_report(report: &[i32]) -> bool {
         || diffs.iter().all(|diff| is_valid_negative_diff(*diff))
 }
 
-struct DiffDirectionIndices {
-    increasing: Vec<usize>,
-    decreasing: Vec<usize>
-}
-
-impl DiffDirectionIndices {
-    fn count_diff(&mut self, diff: i32, idx: usize) {
-        if diff >= 0 {
-            self.increasing.push(idx);
-        } else {
-            self.decreasing.push(idx)
-        }
-    }
-
-    fn count_diffs(diffs: &[i32]) -> Self {
-        diffs
-            .into_iter()
-            .enumerate()
-            .fold(Self::new(), |mut indices, (idx, diff)| {
-                indices.count_diff(*diff, idx);
-                indices
-            })
-    }
-
-    fn new() -> Self {
-        DiffDirectionIndices {
-            increasing: Vec::new(),
-            decreasing: Vec::new()
-        }
-    }
-}
-
 fn validate_diffs<F: Fn(i32) -> bool>(diffs: &[i32], is_valid_diff: F) -> bool {
     let mut level_removed = false;
     let mut prev_level_removed = false;
@@ -115,16 +83,7 @@ fn is_valid_report_with_dampener(report: &[i32]) -> bool {
         .map(|window| window[1] - window[0])
         .collect();
 
-    // we need to handle the case where the first diff has the wrong direction
-    // loop through diffs, count how many are in either direction
-    // then fix the one with the wrong direction
-    // todo: shouldn't need to check directions, just check if either direction works
-    let diff_directions = DiffDirectionIndices::count_diffs(&diffs);
-    match (diff_directions.increasing.as_slice(), diff_directions.decreasing.as_slice()) {
-        ([] | [_], _) => validate_diffs(&diffs, is_valid_negative_diff),
-        (_, [] | [_]) => validate_diffs(&diffs, is_valid_positive_diff),
-        _ => false // neither is off by at most one, so it's not fixable
-    }
+    validate_diffs(&diffs, is_valid_negative_diff) || validate_diffs(&diffs, is_valid_positive_diff)
 }
 
 #[allow(dead_code)]
