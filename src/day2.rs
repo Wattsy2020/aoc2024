@@ -1,4 +1,5 @@
 use std::num::ParseIntError;
+use crate::core::{Pair, Pairwise};
 
 fn parse_line(line: &str) -> Result<Box<[i32]>, ParseIntError> {
     line.split(' ').map(|str| str.parse()).collect()
@@ -62,6 +63,48 @@ impl DiffDirectionIndices {
     }
 }
 
+fn validate_diffs<F: Fn(i32) -> bool>(diffs: &[i32], is_valid_diff: F) -> bool {
+    let mut level_removed = false;
+    let mut prev_level_removed = false;
+
+    diffs
+        .iter()
+        .pairwise()
+        .all(|diffs| {
+            let temp_prev_level_removed = prev_level_removed;
+            prev_level_removed = false;
+            
+            let result = match diffs {
+                // if removing a number in the middle, e.g. removing b in [a b c]
+                // we need to make sure the diff between a and c is valid
+                Pair::Middle(diff1, diff2) => temp_prev_level_removed
+                    || is_valid_diff(*diff1)
+                    || (!level_removed && {
+                    level_removed = true;
+                    prev_level_removed = true;
+                    is_valid_diff(diff1 + diff2)
+                }),
+                // can just remove the first or last number to remove an invalid diff
+                // between first and second number or second last and last number
+                Pair::First(diff1, diff2) => is_valid_diff(*diff1)
+                    || {
+                    level_removed = true;
+                    // strictly better to remove the middle number than the first, so try that
+                    if is_valid_diff(diff1 + diff2) {
+                        prev_level_removed = true;
+                    }
+                    true
+                },
+                Pair::Last(diff1, diff2) => ((temp_prev_level_removed || is_valid_diff(*diff1)) && is_valid_diff(*diff2))
+                    || (!level_removed
+                    && (is_valid_diff(diff1 + diff2) // remove second last number
+                    || is_valid_diff(*diff1) // remove last number, request second last diff to be valid
+                )),
+            };
+            result
+        })
+}
+
 fn is_valid_report_with_dampener(report: &[i32]) -> bool {
     if report.len() <= 2 {
         return true;
@@ -75,60 +118,11 @@ fn is_valid_report_with_dampener(report: &[i32]) -> bool {
     // we need to handle the case where the first diff has the wrong direction
     // loop through diffs, count how many are in either direction
     // then fix the one with the wrong direction
+    // todo: shouldn't need to check directions, just check if either direction works
     let diff_directions = DiffDirectionIndices::count_diffs(&diffs);
     match (diff_directions.increasing.as_slice(), diff_directions.decreasing.as_slice()) {
-        ([] | [_], _) => {
-            let mut level_removed = false;
-            let mut prev_level_removed = false;
-
-            diffs
-                .windows(2)
-                .all(|diffs| { let temp = prev_level_removed; prev_level_removed = false; temp }
-                    || is_valid_negative_diff(diffs[0])
-                    || !level_removed && {
-                    level_removed = true;
-                    prev_level_removed = true;
-                    is_valid_negative_diff(diffs[0] + diffs[1])
-                })
-        }
-        (_, [] | [_]) => {
-            let mut level_removed = false;
-            let mut prev_level_removed = false;
-            let mut is_first = true;
-            
-            // todo bug: we don't consider the last diff
-            // is there some way to check the first and last diff in a nicer manner?
-            // what if we try adding padding at both ends
-            // e.g. for the positive direction, we add a diff of 1 at the start and end of the list
-            for diffs in diffs.windows(2) {
-                if prev_level_removed {
-                    prev_level_removed = false;
-                    continue;
-                }
-
-                if is_valid_positive_diff(diffs[0]) {
-                    is_first = true;
-                    continue;
-                }
-
-                if !level_removed {
-                    level_removed = true;
-                    if is_valid_positive_diff(diffs[0] + diffs[1]) {
-                        prev_level_removed = true;
-                    } else if is_first {
-                        println!("removing first element");
-                    }
-                    else {
-                        return false;
-                    }
-                    is_first = false;
-                    continue;
-                }
-                return false;
-            }
-
-            true
-        }
+        ([] | [_], _) => validate_diffs(&diffs, is_valid_negative_diff),
+        (_, [] | [_]) => validate_diffs(&diffs, is_valid_positive_diff),
         _ => false // neither is off by at most one, so it's not fixable
     }
 }
@@ -142,23 +136,13 @@ fn solve_part1(reports: Box<[Box<[i32]>]>) -> usize {
 }
 
 fn solve_part2(reports: Box<[Box<[i32]>]>) -> usize {
-    let good_reports: Vec<Box<[i32]>> =
-        <Box<[Box<[i32]>]> as IntoIterator>::into_iter(reports)
+    <Box<[Box<[i32]>]> as IntoIterator>::into_iter(reports)
         .filter(|report| is_valid_report_with_dampener(report))
-        .collect();
-    println!("{good_reports:#?}");
-    good_reports.len()
+        .count()
 }
 
 #[allow(dead_code)]
 pub fn solution() -> usize {
-    // [1, 100, 2] fails because it decides the Vector is decreasing
-    // have to let the diff checking change both the increasing and decreasing order perhaps
-    // shouldn't apply to this problem though because it has size 5, solve the other bug instead
-    let test_data = vec![1, 10, 20];
-    let result = is_valid_report_with_dampener(&test_data);
-    println!("{result}");
-
     let contents =
         std::fs::read_to_string("days/day2.txt").expect("Should have been able to read the file");
     let parsed_contents = parse_contents(&contents).expect("Puzzle input should be valid");
@@ -198,16 +182,22 @@ mod tests {
     #[test]
     fn test_negative_start_removal() {
         // [-5, -1]
-        assert!(is_valid_report_with_dampener(&vec![10, 5, 4]));
-        assert!(is_valid_report_with_dampener(&vec![10, 5, 6]));
-        assert!(!is_valid_report_with_dampener(&vec![10, 5, 5]));
+        assert!(is_valid_report_with_dampener(&vec![10, 5, 4, 3]));
+        assert!(is_valid_report_with_dampener(&vec![10, 5, 6, 7]));
+        assert!(!is_valid_report_with_dampener(&vec![10, 5, 5, 4]));
     }
 
     #[test]
     fn test_positive_start_removal() {
-        assert!(!is_valid_report_with_dampener(&vec![10, 14, 7]));
-        assert!(is_valid_report_with_dampener(&vec![0, 5, 4]));
-        assert!(is_valid_report_with_dampener(&vec![0, 5, 6]));
-        assert!(!is_valid_report_with_dampener(&vec![0, 5, 5]));
+        assert!(is_valid_report_with_dampener(&vec![10, 14, 7, 5]));
+        assert!(!is_valid_report_with_dampener(&vec![10, 14, 5, 4]));
+        assert!(is_valid_report_with_dampener(&vec![0, 5, 4, 3]));
+        assert!(is_valid_report_with_dampener(&vec![0, 5, 6, 7]));
+        assert!(!is_valid_report_with_dampener(&vec![0, 5, 5, 6]));
+    }
+
+    #[test]
+    fn test_edgecases() {
+        assert!(!is_valid_report_with_dampener(&vec![86, 89, 90, 93, 93, 95, 94]))
     }
 }
